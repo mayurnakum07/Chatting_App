@@ -15,6 +15,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { useAuthStore } from "../store/authStore";
 import { useHistory } from "react-router-dom";
 import { auth } from "../helper/fb";
+import { handleGoogleLogin } from "../functions";
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState("");
@@ -69,13 +70,24 @@ const Login: React.FC = () => {
         >
           Login
         </IonButton>
-        {/* <IonButton
+        <IonButton
           expand="block"
           onClick={() => history.push("/register")}
           className="ion-margin-top"
         >
           Register
-        </IonButton> */}
+        </IonButton>
+        <IonButton
+          expand="block"
+          onClick={async () => {
+            await handleGoogleLogin();
+            console.log(111111111)
+            history.replace("/home");
+          }}
+          className="ion-margin-top"
+        >
+          Google
+        </IonButton>
 
         <IonToast
           isOpen={!!toastMessage}
