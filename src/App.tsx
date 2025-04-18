@@ -67,11 +67,13 @@ const App: React.FC = () => {
         const userSnap = await getDoc(docRef);
         if (userSnap.exists()) {
           const userData = userSnap.data();
+          console.log('userData: ', userData);
           setUser({
             uid: authUser.uid,
-            name: userData.name,
+            firstName: userData.firstName,
+            lastName: userData.lastName,
             email: userData.email,
-            profilePic: userData.profilePic,
+            photoURL: userData.photoURL,
           });
         }
       } else {
@@ -81,9 +83,9 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [setUser]);
+  }, []);
 
-  if (loading) return <AppLoader/>;
+  if (loading) return <AppLoader />;
 
   return (
     <IonApp>

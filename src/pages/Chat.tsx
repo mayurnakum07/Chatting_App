@@ -24,43 +24,81 @@ import {
   deleteDoc,
   getDocs,
   writeBatch,
+  where,
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
-import { useParams, useLocation, useHistory } from "react-router";
+import { useLocation, useHistory } from "react-router";
 import { useAuthStore } from "../store/authStore";
-import { Pencil, Trash2 } from "lucide-react";
+import { Check, Pencil, Trash2, X } from "lucide-react";
 import { db } from "../helper/fb";
 import "../theme/chat.css";
 
 const Chat: React.FC = () => {
+  const { user } = useAuthStore();
   const history = useHistory();
-  const { chatId } = useParams<{ chatId: string }>();
   const searchParams = new URLSearchParams(useLocation().search);
   const otherUserId = searchParams.get("other");
-  const { user } = useAuthStore();
-  const [message, setMessage] = useState("");
+  const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
-  const contentRef = useRef<any>(null);
-  const textareaRef: any = useRef(null);
-  const [showOptions, setShowOptions] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const contentRef = useRef<HTMLIonContentElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [showOptions, setShowOptions] = useState<number | null>(null);
+  const [editedText, setEditedText] = useState("");
 
+  // Create or fetch chat room
   useEffect(() => {
-    if (!chatId || !user?.uid || !otherUserId) return;
+    const initChatRoom = async () => {
+      if (!user?.uid || !otherUserId) return;
 
-    const ensureChatExists = async () => {
-      const chatRef = doc(db, "chats", chatId);
-      await setDoc(
-        chatRef,
-        { users: [user.uid, otherUserId] },
-        { merge: true }
+      const q = query(
+        collection(db, "chat_rooms"),
+        where("chatType", "==", "1v1"),
+        where("participants", "array-contains", user.uid)
       );
+      const snapshot = await getDocs(q);
+
+      let existingRoom = null;
+
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        if (data.participants.includes(otherUserId)) {
+          existingRoom = docSnap;
+          break;
+        }
+      }
+
+      if (existingRoom) {
+        setChatId(existingRoom.id);
+      } else {
+        const newRoomRef = doc(collection(db, "chat_rooms"));
+        const roomData = {
+          chatType: "1v1",
+          createdAt: serverTimestamp(),
+          participants: [user.uid, otherUserId],
+          joiningData: [
+            { user: user.uid, joinedAt: Date.now() },
+            { user: otherUserId, joinedAt: Date.now() },
+          ],
+        };
+        await setDoc(newRoomRef, roomData);
+        setChatId(newRoomRef.id);
+      }
     };
 
-    ensureChatExists();
+    initChatRoom();
+  }, [user, otherUserId]);
 
-    const msgsRef = collection(db, "chats", chatId, "messages");
-    const q = query(msgsRef, orderBy("timestamp", "asc"));
+  // Load messages
+  useEffect(() => {
+    if (!chatId) return;
+
+    const q = query(
+      collection(db, "chat_messages"),
+      where("chatId", "==", chatId),
+      orderBy("timestamp", "asc")
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map((doc) => ({
@@ -68,11 +106,12 @@ const Chat: React.FC = () => {
         ...doc.data(),
       }));
       setMessages(msgs);
+      console.log("msgs: ", msgs);
       scrollToBottom();
     });
 
     return () => unsubscribe();
-  }, [chatId, user, otherUserId]);
+  }, [chatId]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -80,47 +119,23 @@ const Chat: React.FC = () => {
     }, 100);
   };
 
-  const sendMessage = async () => {
-    if (!message.trim()) return;
+  const handleSendMessage = async () => {
+    if (!message.trim() || !chatId || !user?.uid) return;
 
-    const msgsRef = collection(db, "chats", chatId, "messages");
+    const payload = {
+      chatId,
+      content: message.trim(),
+      senderId: user.uid,
+      messageType: "text",
+      timestamp: serverTimestamp(),
+      reactions: [],
+    };
 
-    if (editingMessageId) {
-      const msgDoc = doc(msgsRef, editingMessageId);
-      await updateDoc(msgDoc, {
-        text: message.trim(),
-        isEdited: true,
-      });
-      setEditingMessageId(null);
-    } else {
-      await addDoc(msgsRef, {
-        text: message.trim(),
-        senderId: user?.uid,
-        timestamp: serverTimestamp(),
-      });
-    }
-
+    await addDoc(collection(db, "chat_messages"), payload);
     setMessage("");
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const SkeletonMessageLoader = () => (
-    <div className="skeleton-message">
-      <div className="skeleton-user-image" />
-      <div className="skeleton-content">
-        <div className="skeleton-chat" />
-        <div className="skeleton-time" />
-      </div>
-    </div>
-  );
-
-  const handleInputChange = (e: any) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value);
     autoGrowTextArea();
   };
@@ -135,46 +150,49 @@ const Chat: React.FC = () => {
     }
   };
 
-  const editMessageHandler = (msg: any) => {
-    setMessage(msg.text);
-    setEditingMessageId(msg.id);
-    autoGrowTextArea();
-  };
+  const SkeletonMessageLoader = () => (
+    <div className="skeleton-message">
+      <div className="skeleton-user-image" />
+      <div className="skeleton-content">
+        <div className="skeleton-chat" />
+        <div className="skeleton-time" />
+      </div>
+    </div>
+  );
 
-  const handleDeleteMessage = async (msgId: string) => {
-    const msgRef = doc(db, "chats", chatId, "messages", msgId);
-    await deleteDoc(msgRef);
-  };
-
-  const cleanupOldMessages = async () => {
-    const oneHour = 60 * 60 * 1000;
-    const now = Date.now();
-
-    const msgsRef = collection(db, "chats", chatId, "messages");
-    const querySnapshot = await getDocs(msgsRef);
-
-    const batch = writeBatch(db);
-
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      const timestamp = data.timestamp?.seconds
-        ? data.timestamp.seconds * 1000
-        : 0;
-
-      if (now - timestamp > oneHour) {
-        batch.delete(docSnap.ref);
-      }
-    });
-
-    await batch.commit();
-  };
-
-  useEffect(() => {
-    if (chatId) {
-      cleanupOldMessages();
-      console.log("Cleaning up old messages");
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      await deleteDoc(doc(db, "chat_messages", messageId));
+      setShowOptions(null);
+    } catch (error) {
+      console.error("Error deleting message: ", error);
     }
-  }, [chatId]);
+  };
+
+  const startEditing = (message: any) => {
+    setEditingMessageId(message.id);
+    setEditedText(message.content); // assuming message has `text`
+  };
+
+  const cancelEditing = () => {
+    setEditingMessageId(null);
+    setEditedText("");
+  };
+
+  const handleEditSubmit = async (messageId: string) => {
+    try {
+      setEditedText("");
+      setShowOptions(null);
+      await updateDoc(doc(db, "chat_messages", messageId), {
+        content: editedText,
+        editedAt: new Date(),
+        isEdited: true,
+      });
+      setEditingMessageId(null);
+    } catch (error) {
+      console.error("Error updating message:", error);
+    }
+  };
 
   return (
     <IonPage>
@@ -224,7 +242,31 @@ const Chat: React.FC = () => {
                                   )
                                 }
                               >
-                                {item?.text}
+                                {editingMessageId === item.id ? (
+                                  <div className="edit-message-box">
+                                    <input
+                                      value={editedText}
+                                      onChange={(e) =>
+                                        setEditedText(e.target.value)
+                                      }
+                                      className="edit-input"
+                                    />
+                                    <div className="edit-actions">
+                                      <Check
+                                        onClick={() =>
+                                          handleEditSubmit(item.id)
+                                        }
+                                        className="check-icon"
+                                      />
+                                      <X
+                                        onClick={cancelEditing}
+                                        className="cancel-icon"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span>{item.content}</span>
+                                )}
                               </div>
                               <div className="time">
                                 {item?.isEdited && (
@@ -254,7 +296,7 @@ const Chat: React.FC = () => {
                                 </div>
                                 <div
                                   className="edit-popup"
-                                  onClick={() => editMessageHandler(item)}
+                                  onClick={() => startEditing(item)}
                                 >
                                   <Pencil className="edit-icon" />
                                 </div>
@@ -293,7 +335,10 @@ const Chat: React.FC = () => {
                     />
                   </div>
 
-                  <div className="send-icon" onClick={() => sendMessage()}>
+                  <div
+                    className="send-icon"
+                    onClick={() => handleSendMessage()}
+                  >
                     Send
                   </div>
                 </div>

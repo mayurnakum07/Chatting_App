@@ -2,7 +2,6 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "../helper/fb";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
-import { useHistory } from "react-router";
 
 const handleGoogleLogin = async () => {
   try {
@@ -25,6 +24,7 @@ const handleGoogleLogin = async () => {
           uid: user.uid,
           email: user.email,
           photoURL: user.photoURL || "",
+          loginMethod: "google.com",
           firstName: user.displayName ? user.displayName.split(" ")[0] : "",
           lastName: user.displayName
             ? user.displayName.split(" ")[1] || ""

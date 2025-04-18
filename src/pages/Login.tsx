@@ -81,7 +81,6 @@ const Login: React.FC = () => {
           expand="block"
           onClick={async () => {
             await handleGoogleLogin();
-            console.log(111111111)
             history.replace("/home");
           }}
           className="ion-margin-top"

@@ -1,12 +1,13 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { User } from 'firebase/auth';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { User } from "firebase/auth";
 
 interface UserData {
   uid: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  profilePic: string;
+  photoURL: string;
 }
 
 interface AuthState {
@@ -21,7 +22,7 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user) => set({ user }),
     }),
     {
-      name: 'auth-storage', // localStorage key
+      name: "auth-storage", // localStorage key
     }
   )
 );

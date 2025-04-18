@@ -10,7 +10,15 @@ import {
   IonLabel,
   IonButtons,
 } from "@ionic/react";
-import { collection, getDocs } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import { useAuthStore } from "../store/authStore";
 import { useHistory } from "react-router";
 import { db } from "../helper/fb";
@@ -32,16 +40,56 @@ const Users: React.FC = () => {
     fetchUsers();
   }, []);
 
-  const openChat = (otherUserId: string) => {
-    const chatId = [user?.uid, otherUserId].sort().join("_");
-    history.push(`/chat/${chatId}?other=${otherUserId}`);
+  const openChat = async (otherUserId: string) => {
+    const chatRoomsRef = collection(db, "chat_rooms");
+    const q = query(
+      chatRoomsRef,
+      where("chatType", "==", "1v1"),
+      where("participants", "array-contains", user?.uid)
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    let existingRoom: any = null;
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.participants.includes(otherUserId)) {
+        existingRoom = { id: doc.id, ...data };
+      }
+    });
+
+    let roomId = existingRoom?.id;
+
+    if (!roomId) {
+      const newRoomRef = doc(chatRoomsRef);
+      roomId = newRoomRef.id;
+
+      await setDoc(newRoomRef, {
+        chatType: "1v1",
+        createdAt: serverTimestamp(),
+        participants: [user?.uid, otherUserId],
+        joiningData: [
+          {
+            user: user?.uid,
+            joinedAt: Date.now(),
+          },
+          {
+            user: otherUserId,
+            joinedAt: Date.now(),
+          },
+        ],
+      });
+    }
+
+    history.push(`/chat/${roomId}?other=${otherUserId}`);
   };
 
   return (
     <IonPage>
       <IonHeader>
         <IonToolbar>
-           <IonButtons onClick={() => history.goBack()}>Back</IonButtons>
+          <IonButtons onClick={() => history.goBack()}>Back</IonButtons>
           <IonTitle>Select User</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -49,7 +97,7 @@ const Users: React.FC = () => {
         <IonList>
           {users.map((u) => (
             <IonItem button key={u.id} onClick={() => openChat(u.id)}>
-              <IonLabel>{u.name}</IonLabel>
+              <IonLabel>{u.firstName}</IonLabel>
             </IonItem>
           ))}
         </IonList>
